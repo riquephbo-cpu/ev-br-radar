@@ -49,7 +49,11 @@ export default async function handler(req,res){
    if(odds.length){const pp=odds.map(o=>devig(o["1"],o["X"],o["2"]));market=[0,1,2].map(i=>{const v=pp.map(x=>x[i]).sort((a,b)=>a-b);return v[Math.floor(v.length/2)]});const s=market.reduce((a,b)=>a+b,0);market=market.map(x=>x/s)}
    const sels=[["1",e.homeTeam?.name,m.p1,0],["X","Empate",m.px,1],["2",e.awayTeam?.name,m.p2,2]];
    for(const [key,label,pm,idx] of sels){let bo=null,bb=null;for(const o of odds){if(bo==null||o[key]>bo){bo=o[key];bb=o.book}}
-    const mk=market?.[idx]??null,pf=mk!=null?.65*pm+.35*mk:pm,fair=1/pf,ev=bo!=null?pf*bo-1:null,conf=Math.max(45,Math.min(92,55+m.samples*2+(odds.length?10:0)));
+   const mk = market?.[idx] ?? null;
+const pf = mk != null ? 0.65 * pm + 0.35 * mk : pm;
+const fair = 1 / pf;
+const ev = bo != null ? pf * bo - 1 : null;
+const conf = Math.max(45, Math.min(92, 55 + m.samples * 2 + (odds.length ? 10 : 0)));
     rows.push({game:`${e.homeTeam?.name} x ${e.awayTeam?.name}`,selection:label,modelProb:pm,marketProb:mk,finalProb:pf,fairOdd:fair,bestOdd:bo,bookmaker:bb,ev,confidence:conf,sources:odds.length,likelyScore:m.score})
    }
    games.push({game:`${e.homeTeam?.name} x ${e.awayTeam?.name}`,xg:`${m.lh.toFixed(2)} x ${m.la.toFixed(2)}`,p1:m.p1,px:m.px,p2:m.p2,over25:m.o25,btts:m.btts,score:m.score})
