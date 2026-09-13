@@ -17,8 +17,27 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px;bord
 </main><script>
 const pc=x=>x==null?'—':(x*100).toFixed(1)+'%', od=x=>x==null?'—':Number(x).toFixed(2);
 async function analyze(){loading.style.display='block';try{const r=await fetch('/api/analyze');const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'Erro');const minEV=+minev.value/100,minC=+minconf.value;let c=0,best=null;rows.innerHTML='';
-d.opportunities.forEach((x,i)=>{let st='SEM ODD',cl='no';if(x.ev!=null&&x.ev>=minEV&&x.confidence>=minC&&x.sources>0){st='OPORTUNIDADE';cl='op';c++}else if(x.ev!=null&&x.ev>=0){st='OBSERVAR';cl='watch'}else if(x.ev!=null){st='NÃO ENTRA'}if(x.ev!=null&&(best==null||x.ev>best))best=x.ev;
-rows.innerHTML+=`<tr><td>${i+1}</td><td>${x.game}</td><td><b>${x.selection}</b></td><td>${pc(x.modelProb)}</td><td>${pc(x.marketProb)}</td><td>${pc(x.finalProb)}</td><td>${od(x.fairOdd)}</td><td><b>${od(x.bestOdd)}</b></td><td>${x.bookmaker||'—'}</td><td class="${x.ev!=null&&x.ev>0?'good':x.ev!=null?'bad':''}">${pc(x.ev)}</td><td>${x.confidence.toFixed(0)}/100</td><td>${x.sources}</td><td>${x.likelyScore}</td><td><span class="badge ${cl}">${st}</span></td></tr>`});
-games.innerHTML='';d.games.forEach(g=>games.innerHTML+=`<tr><td>${g.game}</td><td>${g.xg}</td><td>${pc(g.p1)}</td><td>${pc(g.px)}</td><td>${pc(g.p2)}</td><td>${pc(g.over25)}</td><td>${pc(g.btts)}</td><td>${g.score}</td></tr>`);
-s1.textContent=d.games.length;s2.textContent=d.opportunities.length;s3.textContent=c;s4.textContent=best==null?'—':pc(best);s5.textContent=d.leagueAvg.toFixed(2)}catch(e){alert('Falha: '+e.message)}finally{loading.style.display='none'}}window.onload=analyze;
+d.opportunities.forEach((x,i)=>{
+  let st = x.status || "OBSERVAR";
+  let cl = "watch";
+
+  if (st === "OPORTUNIDADE") cl = "good";
+  else if (st === "AUDITAR") cl = "audit";
+  else if (st === "SEM ODD") cl = "no";
+  else if (st === "OBSERVAR") cl = "watch";
+
+  rows.innerHTML += `<tr><td>${i+1}</td><td>${x.game}</td><td><b>${x.selection}</b></td><td>${pc(x.modelProb)}</td><td>${pc(x.marketProb)}</td><td>${pc(x.finalProb)}</td><td>${od(x.fairOdd)}</td><td>${od(x.bestOdd)}</td><td>${x.bookmaker??'-'}</td><td>${pc(x.ev)}</td><td>${Math.round(x.confidence)}/100</td><td>${x.sources}</td><td>${x.likelyScore}</td><td><span class="badge ${cl}">${st}</span></td></tr>`;
+});
+
+games.innerHTML='';
+d.games.forEach(g=>{
+  games.innerHTML += `<tr><td>${g.game}</td><td>${g.xg}</td><td>${pc(g.p1)}</td><td>${pc(g.px)}</td><td>${pc(g.p2)}</td><td>${pc(g.over25)}</td><td>${pc(g.btts)}</td><td>${g.score}</td></tr>`;
+});
+
+s1.textContent=d.games.length;
+s2.textContent=d.opportunities.length;
+s3.textContent=d.opportunities.filter(x=>x.status==="OPORTUNIDADE").length;
+s4.textContent=d.opportunities.length ? pc(d.opportunities[0].ev) : '-';
+s5.textContent=d.leagueAvg ? Number(d.leagueAvg).toFixed(2) : '-';
+
 </script></body></html>
