@@ -1,5 +1,5 @@
 
-const SOFA = "https://www.sofascore.com/api/v1";
+const SOFA = "https://api.sofascore.app/api/v1";
 const TOURNAMENT_ID = 325;
 
 async function fetchJSON(url) {
