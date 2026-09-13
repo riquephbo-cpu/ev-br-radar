@@ -39,5 +39,12 @@ s2.textContent=d.opportunities.length;
 s3.textContent=d.opportunities.filter(x=>x.status==="OPORTUNIDADE").length;
 s4.textContent=d.opportunities.length ? pc(d.opportunities[0].ev) : '-';
 s5.textContent=d.leagueAvg ? Number(d.leagueAvg).toFixed(2) : '-';
+} catch(e) {
+  alert('Falha: ' + e.message);
+} finally {
+  loading.style.display = 'none';
+}
+}
 
+analyze();
 </script></body></html>
