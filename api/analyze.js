@@ -411,87 +411,81 @@ function decimalOdd(value) {
 }
 
 async function loadOdds(eventId) {
+  const providers = [
+    { priority: 1, name: "Principal" },
+    { priority: 2, name: "Secundaria" },
+    { priority: 3, name: "Terceira" },
+    { priority: 4, name: "Quarta" },
+    { priority: 5, name: "Quinta" },
+    { priority: 6, name: "Sexta" }
+  ];
 
-  try {
+  const books = [];
+  const seen = new Set();
 
-    const url =
-      `${CORE}/events/${eventId}` +
-      `/competitions/${eventId}` +
-      `/odds?limit=100`;
+  for (const provider of providers) {
+    try {
+      const url =
+        `${CORE}/events/${eventId}` +
+        `/competitions/${eventId}` +
+        `/odds?limit=100&provider.priority=${provider.priority}`;
 
-    const data =
-      await getJSON(url);
+      const data = await getJSON(url);
+      const items = data.items || [];
 
-    const items =
-      data.items || [];
+      for (const item of items) {
+        let obj = item;
 
-    const books = [];
-
-    for (const item of items) {
-
-      let obj = item;
-
-      if (item?.$ref) {
-
-        try {
-          obj =
-            await getJSON(
-              item.$ref
-            );
+        if (item?.$ref) {
+          try {
+            obj = await getJSON(item.$ref);
+          } catch {
+            continue;
+          }
         }
 
-        catch {
-          continue;
-        }
-      }
+        const providerName =
+          obj?.provider?.name ||
+          obj?.provider?.displayName ||
+          provider.name;
 
-      const provider =
-        obj?.provider?.name ||
-        obj?.provider?.displayName ||
-        "ESPN";
-
-      let home =
-        decimalOdd(
+        const home = decimalOdd(
           obj?.homeTeamOdds?.moneyLine ??
           obj?.homeTeamOdds?.value
         );
 
-      let away =
-        decimalOdd(
+        const away = decimalOdd(
           obj?.awayTeamOdds?.moneyLine ??
           obj?.awayTeamOdds?.value
         );
 
-      let draw =
-        decimalOdd(
+        const draw = decimalOdd(
           obj?.drawOdds?.moneyLine ??
           obj?.drawOdds?.value
         );
 
-      if (
-        home &&
-        draw &&
-        away
-      ) {
+        if (!home || !draw || !away) continue;
+
+        const key =
+          `${providerName}|${home}|${draw}|${away}`;
+
+        if (seen.has(key)) continue;
+
+        seen.add(key);
 
         books.push({
-          bookmaker:
-            provider,
-
+          bookmaker: providerName,
           "1": home,
           "X": draw,
           "2": away
         });
       }
+    } catch {
+      // ignora provedor indisponivel
     }
-
-    return books;
   }
 
-  catch {
-
-    return [];
-  }
+  return books;
 }
 
 function devig(a, b, c) {
@@ -725,10 +719,14 @@ export default async function handler(
           likelyScore:
             model.score,
 
-          status:
-            bestOdd != null
-              ? "Odd disponível"
-              : "Sem odd"
+         status:
+  bestOdd == null
+    ? "SEM ODD"
+    : ev > 0.20
+      ? "AUDITAR"
+      : ev >= 0.05 && confidence >= 65
+        ? "OPORTUNIDADE"
+        : "OBSERVAR"
         });
       }
 
