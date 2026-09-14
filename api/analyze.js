@@ -4,6 +4,8 @@ const SCOREBOARD =
 
 const CORE =
   `https://sports.core.api.espn.com/v2/sports/soccer/leagues/${LEAGUE}`;
+const ODDSPAPI_KEY = process.env.ODDSPAPI_API_KEY;
+const ODDSPAPI_BASE = "https://api.oddspapi.io/v4";
 
 async function getJSON(url) {
   const r = await fetch(url, {
