@@ -7,6 +7,18 @@ const CORE =
 const ODDSPAPI_KEY = process.env.ODDSPAPI_API_KEY;
 const ODDSPAPI_BASE = "https://api.oddspapi.io/v4";
 
+async function getOddsPapi(url) {
+ const r = await fetch(`${url}${url.includes("?") ? "&" : "?"}apiKey=${encodeURIComponent(ODDSPAPI_KEY)}`, {
+    headers: {
+      
+      "accept": "application/json"
+        }
+      });
+  if (!r.ok) {
+throw new Error(`OddsPapi ${r.status}`);
+    }
+  return await r.json();
+  }
 async function getJSON(url) {
   const r = await fetch(url, {
     headers: {
