@@ -9,138 +9,67 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Busca um jogo do Brasileirão que tenha odds
     const fixturesUrl =
       `https://api.oddspapi.io/v4/fixtures` +
       `?tournamentId=325` +
       `&sportId=10` +
+      `&statusId=0` +
       `&hasOdds=true` +
-      `&limit=1` +
+      `&limit=20` +
       `&apiKey=${encodeURIComponent(apiKey)}`;
 
-    const fixturesResponse = await fetch(fixturesUrl);
+    const fr = await fetch(fixturesUrl);
 
-    if (!fixturesResponse.ok) {
-      throw new Error(
-        `Erro fixtures: ${fixturesResponse.status}`
-      );
+    if (!fr.ok) {
+      const text = await fr.text();
+
+      return res.status(fr.status).json({
+        ok: false,
+        etapa: "fixtures",
+        status: fr.status,
+        resposta: text
+      });
     }
 
-    const fixturesData = await fixturesResponse.json();
+    const fixtures = await fr.json();
 
-    const fixtures = Array.isArray(fixturesData)
-      ? fixturesData
-      : fixturesData.fixtures ||
-        fixturesData.data ||
-        fixturesData.items ||
-        [];
-
-    const fixture = fixtures[0];
+    const fixture =
+      Array.isArray(fixtures)
+        ? fixtures[0]
+        : null;
 
     if (!fixture) {
       return res.status(404).json({
         ok: false,
-        error: "Nenhum jogo com odds encontrado",
-        fixturesData
+        error: "Nenhum jogo encontrado"
       });
     }
 
     const fixtureId =
-      fixture.fixtureId ||
-      fixture.id;
+      fixture.fixtureId;
 
-    if (!fixtureId) {
-      return res.status(500).json({
-        ok: false,
-        error: "Fixture encontrado sem fixtureId",
-        fixture
-      });
-    }
-
-    // 2. Busca TODOS os mercados desse jogo
     const oddsUrl =
       `https://api.oddspapi.io/v4/odds` +
       `?fixtureId=${encodeURIComponent(fixtureId)}` +
+      `&bookmakers=draftkings` +
       `&oddsFormat=decimal` +
+      `&language=en` +
       `&verbosity=3` +
       `&apiKey=${encodeURIComponent(apiKey)}`;
 
-    const oddsResponse = await fetch(oddsUrl);
+    const or = await fetch(oddsUrl);
+    const text = await or.text();
 
-    if (!oddsResponse.ok) {
-      throw new Error(
-        `Erro odds: ${oddsResponse.status}`
-      );
-    }
-
-    const oddsData = await oddsResponse.json();
-
-    // 3. Resume os mercados encontrados
-    const bookmakerOdds =
-      oddsData.bookmakerOdds || {};
-
-    const marketIds = new Set();
-
-    const bookmakers = [];
-
-    for (const [bookmaker, board] of
-         Object.entries(bookmakerOdds)) {
-
-      const markets =
-        board?.markets || {};
-
-      const ids =
-        Object.keys(markets);
-
-      ids.forEach(id =>
-        marketIds.add(id)
-      );
-
-      bookmakers.push({
-        bookmaker,
-        totalMarkets: ids.length,
-        marketIds: ids.slice(0, 100)
-      });
-    }
-
-    return res.status(200).json({
-      ok: true,
-
-      teste:
-        "MAPEAMENTO DE MERCADOS ODDSAPI",
-
+    return res.status(or.status).json({
+      ok: or.ok,
       jogo: {
         fixtureId,
-
-        casa:
-          fixture.participant1Name,
-
-        fora:
-          fixture.participant2Name,
-
-        inicio:
-          fixture.startTime
+        casa: fixture.participant1Name,
+        fora: fixture.participant2Name,
+        inicio: fixture.startTime
       },
-
-      totalBookmakers:
-        Object.keys(bookmakerOdds).length,
-
-      totalMarketIds:
-        marketIds.size,
-
-      marketIds:
-        [...marketIds],
-
-      bookmakers:
-        bookmakers.slice(0, 20),
-
-      exemploBookmaker:
-        Object.entries(bookmakerOdds)
-          .slice(0, 1)
-          .map(([nome, dados]) => ({
-            nome,
-            markets: dados?.markets
-          }))
+      statusOdds: or.status,
+      resposta: text.slice(0, 15000)
     });
 
   } catch (e) {
