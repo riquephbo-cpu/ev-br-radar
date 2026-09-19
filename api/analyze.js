@@ -568,6 +568,7 @@ function parseOddsPapiMarkets(data, reversed = false) {
           seen1x2.add(key);
           result.oneXtwo.push({
             bookmaker,
+            bookmakerSlug: slug,
             "1": home,
             "X": draw,
             "2": away,
@@ -591,6 +592,7 @@ function parseOddsPapiMarkets(data, reversed = false) {
           seenOU.add(key);
           result.overUnder25.push({
             bookmaker,
+            bookmakerSlug: slug,
             OVER25: over,
             UNDER25: under,
             source: "OddsPapi"
@@ -613,6 +615,7 @@ function parseOddsPapiMarkets(data, reversed = false) {
           seenBTTS.add(key);
           result.btts.push({
             bookmaker,
+            bookmakerSlug: slug,
             BTTS_YES: yes,
             BTTS_NO: no,
             source: "OddsPapi"
@@ -708,11 +711,46 @@ function marketConsensus2(books, keyA, keyB) {
   return [a / total, b / total];
 }
  
+// Casas usadas para a coluna "Melhor Odd".
+// O consenso continua usando todas as fontes válidas; este filtro afeta apenas
+// a odd acionável exibida pelo radar. A lista prioriza marcas autorizadas no
+// Brasil e evita fontes globais/ambíguas como Kalshi, DraftKings, Duel etc.
+const BRAZIL_ACTIONABLE_BOOKMAKERS = [
+  "betano",
+  "superbet",
+  "bet365",
+  "kto",
+  "betnacional",
+  "stake",
+  "estrelabet",
+  "betmgm",
+  "sportingbet",
+  "betboo",
+  "sportybet",
+  "novibet",
+  "galera"
+];
+ 
+function normalizedBookmakerText(book) {
+  return `${book?.bookmakerSlug || ""} ${book?.bookmaker || ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9.]+/g, " ");
+}
+ 
+function isBrazilActionableBookmaker(book) {
+  const text = normalizedBookmakerText(book);
+  return BRAZIL_ACTIONABLE_BOOKMAKERS.some(name => text.includes(name));
+}
+ 
 function bestPrice(books, key) {
   let bestOdd = null;
   let bookmaker = null;
  
-  for (const book of books) {
+  // IMPORTANTE: somente casas do filtro brasileiro entram na Melhor Odd.
+  // As demais continuam participando de marketConsensus2/3.
+  for (const book of books.filter(isBrazilActionableBookmaker)) {
     const price = Number(book?.[key]);
  
     if (
@@ -994,7 +1032,7 @@ export default async function handler(req, res) {
  
     return res.status(200).json({
       ok: true,
-      version: "EV-BR V2",
+      version: "EV-BR V2.2",
       source: "ESPN + OddsPapi",
       league: "Brasileirão Série A",
       leagueAvg: leagueAverage,
