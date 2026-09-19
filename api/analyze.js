@@ -1,61 +1,59 @@
+EV-BR RADAR — analyze.js V2
+COPIE SOMENTE O CÓDIGO ABAIXO, começando em const LEAGUE e indo até a última chave }.
+No GitHub: Ctrl+A no código antigo → Delete → cole este código completo → Confirmar alterações.
 const LEAGUE = "bra.1";
 const SCOREBOARD =
   `https://site.api.espn.com/apis/site/v2/sports/soccer/${LEAGUE}/scoreboard`;
  
 const CORE =
   `https://sports.core.api.espn.com/v2/sports/soccer/leagues/${LEAGUE}`;
+ 
 const ODDSPAPI_KEY = process.env.ODDSPAPI_API_KEY;
 const ODDSPAPI_BASE = "https://api.oddspapi.io/v4";
  
 async function getOddsPapi(url) {
- const r = await fetch(`${url}${url.includes("?") ? "&" : "?"}apiKey=${encodeURIComponent(ODDSPAPI_KEY)}`, {
-    headers: {
-      
-      "accept": "application/json"
-        }
-      });
-  if (!r.ok) {
-throw new Error(`OddsPapi ${r.status}`);
-    }
+  if (!ODDSPAPI_KEY) throw new Error("ODDSPAPI_API_KEY ausente");
+ 
+  const r = await fetch(
+    `${url}${url.includes("?") ? "&" : "?"}apiKey=${encodeURIComponent(ODDSPAPI_KEY)}`,
+    { headers: { accept: "application/json" } }
+  );
+ 
+  if (!r.ok) throw new Error(`OddsPapi ${r.status}`);
   return await r.json();
-  }
+}
+ 
 async function getJSON(url) {
   const r = await fetch(url, {
-    headers: {
-      "accept": "application/json"
-    }
+    headers: { accept: "application/json" }
   });
  
-  if (!r.ok) {
-    throw new Error(`ESPN ${r.status}`);
-  }
- 
+  if (!r.ok) throw new Error(`ESPN ${r.status}`);
   return await r.json();
+}
+ 
+async function tryGetJSON(url) {
+  try {
+    return await getJSON(url);
+  } catch (e) {
+    console.error("ESPN opcional:", e.message, url);
+    return null;
+  }
 }
  
 function poisson(lambda, k) {
   let f = 1;
- 
-  for (let i = 2; i <= k; i++) {
-    f *= i;
-  }
- 
+  for (let i = 2; i <= k; i++) f *= i;
   return Math.exp(-lambda) * Math.pow(lambda, k) / f;
 }
  
 function parseEvent(event) {
   const competition = event?.competitions?.[0];
- 
   if (!competition) return null;
  
   const competitors = competition.competitors || [];
- 
-  const home =
-    competitors.find(c => c.homeAway === "home");
- 
-  const away =
-    competitors.find(c => c.homeAway === "away");
- 
+  const home = competitors.find(c => c.homeAway === "home");
+  const away = competitors.find(c => c.homeAway === "away");
   if (!home || !away) return null;
  
   const hs = Number(home.score);
@@ -64,101 +62,83 @@ function parseEvent(event) {
   return {
     id: event.id,
     date: event.date,
- 
-    completed:
-      event?.status?.type?.completed === true,
- 
+    completed: event?.status?.type?.completed === true,
     homeId: String(home.team?.id || ""),
     awayId: String(away.team?.id || ""),
- 
-    home:
-      home.team?.displayName ||
-      home.team?.name ||
-      "Casa",
- 
-    away:
-      away.team?.displayName ||
-      away.team?.name ||
-      "Fora",
- 
-    homeScore:
-      Number.isFinite(hs) ? hs : null,
- 
-    awayScore:
-      Number.isFinite(as) ? as : null
+    home: home.team?.displayName || home.team?.name || "Casa",
+    away: away.team?.displayName || away.team?.name || "Fora",
+    homeScore: Number.isFinite(hs) ? hs : null,
+    awayScore: Number.isFinite(as) ? as : null
   };
 }
  
 async function loadSeason() {
- 
   const year = new Date().getFullYear();
  
-  const url =
-    `${SCOREBOARD}?dates=${year}0101-${year}1231&limit=500`;
+  // A consulta anual antiga podia receber ESPN 400.
+  // Fazemos consultas mensais menores e, se uma falhar, seguimos com as demais.
+  const all = new Map();
  
-  const data = await getJSON(url);
+  for (let month = 1; month <= 12; month++) {
+    const mm = String(month).padStart(2, "0");
+    const lastDay = new Date(year, month, 0).getDate();
+    const dd = String(lastDay).padStart(2, "0");
  
-  return (data.events || [])
-    .map(parseEvent)
-    .filter(Boolean);
+    const url =
+      `${SCOREBOARD}?dates=${year}${mm}01-${year}${mm}${dd}&limit=100`;
+ 
+    const data = await tryGetJSON(url);
+    if (!data) continue;
+ 
+    for (const raw of data.events || []) {
+      const event = parseEvent(raw);
+      if (event?.id) all.set(event.id, event);
+    }
+  }
+ 
+  // Fallback: se a ESPN rejeitar as consultas com intervalo,
+  // tenta o scoreboard simples em vez de derrubar o radar.
+  if (!all.size) {
+    const fallback = await tryGetJSON(SCOREBOARD);
+ 
+    for (const raw of fallback?.events || []) {
+      const event = parseEvent(raw);
+      if (event?.id) all.set(event.id, event);
+    }
+  }
+ 
+  return [...all.values()];
 }
  
 function weightedAverage(values, decay = 0.88) {
- 
   let numerator = 0;
   let denominator = 0;
  
   values.forEach((value, i) => {
- 
     if (value == null) return;
- 
-    const weight =
-      Math.pow(decay, i);
- 
+    const weight = Math.pow(decay, i);
     numerator += value * weight;
     denominator += weight;
   });
  
-  return denominator
-    ? numerator / denominator
-    : null;
+  return denominator ? numerator / denominator : null;
 }
  
 function buildStats(events) {
- 
-  const finished =
-    events
-      .filter(e =>
-        e.completed &&
-        e.homeScore != null &&
-        e.awayScore != null
-      )
-      .sort(
-        (a, b) =>
-          new Date(b.date) -
-          new Date(a.date)
-      );
+  const finished = events
+    .filter(e => e.completed && e.homeScore != null && e.awayScore != null)
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
  
   const teams = {};
- 
   let totalGoals = 0;
   let sides = 0;
  
   for (const e of finished) {
- 
-    totalGoals +=
-      e.homeScore +
-      e.awayScore;
- 
+    totalGoals += e.homeScore + e.awayScore;
     sides += 2;
  
-    teams[e.homeId] ??= {
-      matches: []
-    };
- 
-    teams[e.awayId] ??= {
-      matches: []
-    };
+    teams[e.homeId] ??= { matches: [] };
+    teams[e.awayId] ??= { matches: [] };
  
     teams[e.homeId].matches.push({
       gf: e.homeScore,
@@ -173,146 +153,62 @@ function buildStats(events) {
     });
   }
  
-  const leagueAverage =
-    sides
-      ? totalGoals / sides
-      : 1.25;
- 
+  const leagueAverage = sides ? totalGoals / sides : 1.25;
   const stats = {};
  
-  for (const [id, team] of
-       Object.entries(teams)) {
- 
-    const matches =
-      team.matches.slice(0, 12);
- 
-    const home =
-      matches.filter(x => x.home);
- 
-    const away =
-      matches.filter(x => !x.home);
+  for (const [id, team] of Object.entries(teams)) {
+    const matches = team.matches.slice(0, 12);
+    const home = matches.filter(x => x.home);
+    const away = matches.filter(x => !x.home);
  
     const gf =
-      weightedAverage(
-        matches.map(x => x.gf)
-      ) ?? leagueAverage;
+      weightedAverage(matches.map(x => x.gf)) ?? leagueAverage;
  
     const ga =
-      weightedAverage(
-        matches.map(x => x.ga)
-      ) ?? leagueAverage;
+      weightedAverage(matches.map(x => x.ga)) ?? leagueAverage;
  
     stats[id] = {
- 
-      samples:
-        matches.length,
- 
+      samples: matches.length,
       gf,
       ga,
- 
-      homeGF:
-        weightedAverage(
-          home.map(x => x.gf)
-        ) ?? gf,
- 
-      homeGA:
-        weightedAverage(
-          home.map(x => x.ga)
-        ) ?? ga,
- 
-      awayGF:
-        weightedAverage(
-          away.map(x => x.gf)
-        ) ?? gf,
- 
-      awayGA:
-        weightedAverage(
-          away.map(x => x.ga)
-        ) ?? ga
+      homeGF: weightedAverage(home.map(x => x.gf)) ?? gf,
+      homeGA: weightedAverage(home.map(x => x.ga)) ?? ga,
+      awayGF: weightedAverage(away.map(x => x.gf)) ?? gf,
+      awayGA: weightedAverage(away.map(x => x.ga)) ?? ga
     };
   }
  
-  return {
-    stats,
-    leagueAverage
-  };
+  return { stats, leagueAverage };
 }
  
-function calculateModel(
-  event,
-  stats,
-  leagueAverage
-) {
+function calculateModel(event, stats, leagueAverage) {
+  const h = stats[event.homeId];
+  const a = stats[event.awayId];
+  if (!h || !a) return null;
  
-  const h =
-    stats[event.homeId];
+  const avg = Math.max(leagueAverage, 0.3);
  
-  const a =
-    stats[event.awayId];
+  const homeAttack = (0.65 * h.homeGF + 0.35 * h.gf) / avg;
+  const homeDefense = (0.65 * h.homeGA + 0.35 * h.ga) / avg;
+  const awayAttack = (0.65 * a.awayGF + 0.35 * a.gf) / avg;
+  const awayDefense = (0.65 * a.awayGA + 0.35 * a.ga) / avg;
  
-  if (!h || !a)
-    return null;
+  const lambdaHome = Math.max(
+    0.20,
+    Math.min(3.5, avg * homeAttack * awayDefense * 1.10)
+  );
  
-  const avg =
-    Math.max(
-      leagueAverage,
-      0.3
-    );
- 
-  const homeAttack =
-    (
-      0.65 * h.homeGF +
-      0.35 * h.gf
-    ) / avg;
- 
-  const homeDefense =
-    (
-      0.65 * h.homeGA +
-      0.35 * h.ga
-    ) / avg;
- 
-  const awayAttack =
-    (
-      0.65 * a.awayGF +
-      0.35 * a.gf
-    ) / avg;
- 
-  const awayDefense =
-    (
-      0.65 * a.awayGA +
-      0.35 * a.ga
-    ) / avg;
- 
-  const lambdaHome =
-    Math.max(
-      0.20,
-      Math.min(
-        3.5,
-        avg *
-        homeAttack *
-        awayDefense *
-        1.10
-      )
-    );
- 
-  const lambdaAway =
-    Math.max(
-      0.15,
-      Math.min(
-        3.2,
-        avg *
-        awayAttack *
-        homeDefense *
-        0.92
-      )
-    );
+  const lambdaAway = Math.max(
+    0.15,
+    Math.min(3.2, avg * awayAttack * homeDefense * 0.92)
+  );
  
   let pHome = 0;
   let pDraw = 0;
   let pAway = 0;
- 
   let over25 = 0;
   let btts = 0;
+  let gridTotal = 0;
  
   let bestScore = {
     home: 0,
@@ -321,31 +217,18 @@ function calculateModel(
   };
  
   for (let i = 0; i <= 8; i++) {
- 
     for (let j = 0; j <= 8; j++) {
+      const p = poisson(lambdaHome, i) * poisson(lambdaAway, j);
+      gridTotal += p;
  
-      const p =
-        poisson(lambdaHome, i) *
-        poisson(lambdaAway, j);
+      if (i > j) pHome += p;
+      else if (i === j) pDraw += p;
+      else pAway += p;
  
-      if (i > j)
-        pHome += p;
+      if (i + j >= 3) over25 += p;
+      if (i > 0 && j > 0) btts += p;
  
-      else if (i === j)
-        pDraw += p;
- 
-      else
-        pAway += p;
- 
-      if (i + j >= 3)
-        over25 += p;
- 
-      if (i > 0 && j > 0)
-        btts += p;
- 
-      if (p >
-          bestScore.probability) {
- 
+      if (p > bestScore.probability) {
         bestScore = {
           home: i,
           away: j,
@@ -355,72 +238,39 @@ function calculateModel(
     }
   }
  
-  const total =
-    pHome +
-    pDraw +
-    pAway;
+  const total = pHome + pDraw + pAway;
+  const norm = gridTotal || total || 1;
  
   return {
- 
-    p1:
-      pHome / total,
- 
-    px:
-      pDraw / total,
- 
-    p2:
-      pAway / total,
- 
-    over25,
-    btts,
- 
+    p1: pHome / total,
+    px: pDraw / total,
+    p2: pAway / total,
+    over25: over25 / norm,
+    under25: 1 - over25 / norm,
+    btts: btts / norm,
+    bttsNo: 1 - btts / norm,
     lambdaHome,
     lambdaAway,
- 
-    score:
-      `${bestScore.home}-${bestScore.away}`,
- 
-    samples:
-      Math.min(
-        h.samples,
-        a.samples
-      )
+    score: `${bestScore.home}-${bestScore.away}`,
+    samples: Math.min(h.samples, a.samples)
   };
 }
  
 function americanToDecimal(value) {
- 
-  const n =
-    Number(value);
- 
-  if (!Number.isFinite(n))
-    return null;
- 
-  if (n > 0)
-    return 1 + n / 100;
- 
-  if (n < 0)
-    return 1 + 100 /
-      Math.abs(n);
- 
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n > 0) return 1 + n / 100;
+  if (n < 0) return 1 + 100 / Math.abs(n);
   return null;
 }
  
 function decimalOdd(value) {
+  if (value == null) return null;
  
-  if (value == null)
-    return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
  
-  const n =
-    Number(value);
- 
-  if (!Number.isFinite(n))
-    return null;
- 
-  if (n > 1 &&
-      n < 30)
-    return n;
- 
+  if (n > 1 && n < 30) return n;
   return americanToDecimal(n);
 }
  
@@ -444,18 +294,17 @@ async function loadOdds(eventId) {
         `/competitions/${eventId}` +
         `/odds?limit=100&provider.priority=${provider.priority}`;
  
-      const data = await getJSON(url);
+      const data = await tryGetJSON(url);
+      if (!data) continue;
+ 
       const items = data.items || [];
  
       for (const item of items) {
         let obj = item;
  
         if (item?.$ref) {
-          try {
-            obj = await getJSON(item.$ref);
-          } catch {
-            continue;
-          }
+          obj = await tryGetJSON(item.$ref);
+          if (!obj) continue;
         }
  
         const providerName =
@@ -484,23 +333,24 @@ async function loadOdds(eventId) {
           `${providerName}|${home}|${draw}|${away}`;
  
         if (seen.has(key)) continue;
- 
         seen.add(key);
  
         books.push({
           bookmaker: providerName,
           "1": home,
           "X": draw,
-          "2": away
+          "2": away,
+          source: "ESPN"
         });
       }
-    } catch {
-      // ignora provedor indisponivel
+    } catch (e) {
+      console.error("ESPN odds:", e.message);
     }
   }
  
   return books;
 }
+ 
 async function loadOddsPapiFixtures() {
   if (!ODDSPAPI_KEY) return [];
  
@@ -513,7 +363,9 @@ async function loadOddsPapiFixtures() {
       `&hasOdds=true`;
  
     const data = await getOddsPapi(url);
-    return Array.isArray(data) ? data : [];
+    return Array.isArray(data)
+      ? data
+      : data?.fixtures || data?.data || data?.items || [];
   } catch (e) {
     console.error("OddsPapi fixtures:", e.message);
     return [];
@@ -542,7 +394,10 @@ function normalizeTeamName(name) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/\b(fc|futebol clube|ec|esporte clube|sc|clube atletico|clube)\b/g, "")
+    .replace(
+      /\b(fc|futebol clube|ec|esporte clube|sc|clube atletico|clube)\b/g,
+      ""
+    )
     .replace(/[^a-z0-9]/g, "")
     .trim();
 }
@@ -551,33 +406,33 @@ function canonicalTeamName(name) {
   const n = normalizeTeamName(name);
  
   const aliases = {
-    "atleticomg": "atleticomineiro",
-    "atleticomineiro": "atleticomineiro",
-    "cam": "atleticomineiro",
+    atleticomg: "atleticomineiro",
+    atleticomineiro: "atleticomineiro",
+    cam: "atleticomineiro",
  
-    "athleticopr": "athleticoparanaense",
-    "athleticoparanaense": "athleticoparanaense",
-    "atleticoparanaense": "athleticoparanaense",
+    athleticopr: "athleticoparanaense",
+    athleticoparanaense: "athleticoparanaense",
+    atleticoparanaense: "athleticoparanaense",
  
-    "bragantino": "bragantino",
-    "redbullbragantino": "bragantino",
-    "rbbragantino": "bragantino",
+    bragantino: "bragantino",
+    redbullbragantino: "bragantino",
+    rbbragantino: "bragantino",
  
-    "vasco": "vasco",
-    "vascodagama": "vasco",
-    "crvascodagama": "vasco",
+    vasco: "vasco",
+    vascodagama: "vasco",
+    crvascodagama: "vasco",
  
-    "gremio": "gremio",
-    "gremiofbpa": "gremio",
+    gremio: "gremio",
+    gremiofbpa: "gremio",
  
-    "internacional": "internacional",
-    "scinternacional": "internacional",
+    internacional: "internacional",
+    scinternacional: "internacional",
  
-    "saopaulo": "saopaulo",
-    "saopaulofc": "saopaulo",
+    saopaulo: "saopaulo",
+    saopaulofc: "saopaulo",
  
-    "corinthians": "corinthians",
-    "sportclubcorinthianspaulista": "corinthians"
+    corinthians: "corinthians",
+    sportclubcorinthianspaulista: "corinthians"
   };
  
   return aliases[n] || n;
@@ -665,57 +520,107 @@ function readOddsPapiPrice(market, outcomeId) {
   return decimalOdd(player.price);
 }
  
-function parseOddsPapi1X2(data, reversed = false) {
+function parseOddsPapiMarkets(data, reversed = false) {
   const boards = data?.bookmakerOdds || {};
-  const books = [];
-  const seen = new Set();
+ 
+  const result = {
+    oneXtwo: [],
+    overUnder25: [],
+    btts: []
+  };
+ 
+  const seen1x2 = new Set();
+  const seenOU = new Set();
+  const seenBTTS = new Set();
  
   for (const [slug, board] of Object.entries(boards)) {
     const markets = board?.markets || {};
  
-    // 101 = Full Time Result (1X2) na catalogação oficial da OddsPapi.
-    const market = markets["101"] || markets[101];
-    if (!market) continue;
+    const bookmaker =
+      board?.bookmakerName ||
+      board?.displayName ||
+      board?.name ||
+      slug;
  
-    let home = readOddsPapiPrice(market, 101);
-    const draw = readOddsPapiPrice(market, 102);
-    let away = readOddsPapiPrice(market, 103);
+    // 1X2: market 101; outcomes 101 / 102 / 103.
+    const one = markets["101"] || markets[101];
  
-    if (!home || !draw || !away) continue;
+    if (one) {
+      let home = readOddsPapiPrice(one, 101);
+      const draw = readOddsPapiPrice(one, 102);
+      let away = readOddsPapiPrice(one, 103);
  
-    if (reversed) {
-      [home, away] = [away, home];
+      if (home && draw && away) {
+        if (reversed) [home, away] = [away, home];
+ 
+        const key =
+          `${home.toFixed(6)}|${draw.toFixed(6)}|${away.toFixed(6)}`;
+ 
+        if (!seen1x2.has(key)) {
+          seen1x2.add(key);
+          result.oneXtwo.push({
+            bookmaker,
+            "1": home,
+            "X": draw,
+            "2": away,
+            source: "OddsPapi"
+          });
+        }
+      }
     }
  
-    // Evita que feeds espelhados com exatamente os mesmos preços
-    // aumentem artificialmente o número de fontes do consenso.
-    const priceKey =
-      `${home.toFixed(6)}|${draw.toFixed(6)}|${away.toFixed(6)}`;
+    // Over/Under 2.5: market 1010; outcomes 1010 Over / 1011 Under.
+    const ou = markets["1010"] || markets[1010];
  
-    if (seen.has(priceKey)) continue;
-    seen.add(priceKey);
+    if (ou) {
+      const over = readOddsPapiPrice(ou, 1010);
+      const under = readOddsPapiPrice(ou, 1011);
  
-    books.push({
-      bookmaker:
-        board?.bookmakerName ||
-        board?.displayName ||
-        board?.name ||
-        slug,
-      "1": home,
-      "X": draw,
-      "2": away,
-      source: "OddsPapi"
-    });
+      if (over && under) {
+        const key = `${over.toFixed(6)}|${under.toFixed(6)}`;
+ 
+        if (!seenOU.has(key)) {
+          seenOU.add(key);
+          result.overUnder25.push({
+            bookmaker,
+            OVER25: over,
+            UNDER25: under,
+            source: "OddsPapi"
+          });
+        }
+      }
+    }
+ 
+    // BTTS: market 104; outcomes 104 Yes / 105 No.
+    const bt = markets["104"] || markets[104];
+ 
+    if (bt) {
+      const yes = readOddsPapiPrice(bt, 104);
+      const no = readOddsPapiPrice(bt, 105);
+ 
+      if (yes && no) {
+        const key = `${yes.toFixed(6)}|${no.toFixed(6)}`;
+ 
+        if (!seenBTTS.has(key)) {
+          seenBTTS.add(key);
+          result.btts.push({
+            bookmaker,
+            BTTS_YES: yes,
+            BTTS_NO: no,
+            source: "OddsPapi"
+          });
+        }
+      }
+    }
   }
  
-  return books;
+  return result;
 }
  
 function mergeOddsSources(espnOdds, papiOdds) {
   const merged = [];
   const seen = new Set();
  
-  // OddsPapi primeiro porque costuma trazer o nome real da casa.
   for (const book of [...papiOdds, ...espnOdds]) {
     if (!book?.["1"] || !book?.["X"] || !book?.["2"]) continue;
  
@@ -730,347 +635,376 @@ function mergeOddsSources(espnOdds, papiOdds) {
   return merged;
 }
  
-function devig(a, b, c) {
-  const raw = [
-    1 / a,
-    1 / b,
-    1 / c
-  ];
+function devig3(a, b, c) {
+  if (![a, b, c].every(x => Number.isFinite(x) && x > 1)) {
+    return null;
+  }
  
-  const total =
-    raw.reduce(
-      (x, y) => x + y,
-      0
-    );
+  const raw = [1 / a, 1 / b, 1 / c];
+  const total = raw.reduce((x, y) => x + y, 0);
+  return raw.map(x => x / total);
+}
  
-  return raw.map(
-    x => x / total
+function devig2(a, b) {
+  if (![a, b].every(x => Number.isFinite(x) && x > 1)) {
+    return null;
+  }
+ 
+  const rawA = 1 / a;
+  const rawB = 1 / b;
+  const total = rawA + rawB;
+ 
+  return [rawA / total, rawB / total];
+}
+ 
+function median(values) {
+  const clean = values
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+ 
+  if (!clean.length) return null;
+ 
+  const middle = Math.floor(clean.length / 2);
+ 
+  return clean.length % 2
+    ? clean[middle]
+    : (clean[middle - 1] + clean[middle]) / 2;
+}
+ 
+function marketConsensus3(books) {
+  const probabilities = books
+    .map(o => devig3(o["1"], o["X"], o["2"]))
+    .filter(Boolean);
+ 
+  if (!probabilities.length) return null;
+ 
+  const result = [0, 1, 2].map(i =>
+    median(probabilities.map(x => x[i]))
+  );
+ 
+  const total = result.reduce((a, b) => a + b, 0);
+  return result.map(x => x / total);
+}
+ 
+function marketConsensus2(books, keyA, keyB) {
+  const probabilities = books
+    .map(o => devig2(o[keyA], o[keyB]))
+    .filter(Boolean);
+ 
+  if (!probabilities.length) return null;
+ 
+  const a = median(probabilities.map(x => x[0]));
+  const b = median(probabilities.map(x => x[1]));
+  const total = a + b;
+ 
+  return [a / total, b / total];
+}
+ 
+function bestPrice(books, key) {
+  let bestOdd = null;
+  let bookmaker = null;
+ 
+  for (const book of books) {
+    const price = Number(book?.[key]);
+ 
+    if (
+      Number.isFinite(price) &&
+      price > 1 &&
+      (bestOdd == null || price > bestOdd)
+    ) {
+      bestOdd = price;
+      bookmaker = book.bookmaker;
+    }
+  }
+ 
+  return { bestOdd, bookmaker };
+}
+ 
+function confidenceFor(samples, sourceCount) {
+  return Math.max(
+    45,
+    Math.min(
+      92,
+      55 + samples * 2 + (sourceCount ? 10 : 0)
+    )
   );
 }
  
-export default async function handler(
-  req,
-  res
-) {
+function statusFor(bestOdd, ev, confidence) {
+  if (bestOdd == null || ev == null) return "SEM ODD";
+  if (ev > 0.20) return "AUDITAR";
+  if (ev >= 0.05 && confidence >= 65) return "OPORTUNIDADE";
+  return "OBSERVAR";
+}
  
+function addOpportunity({
+  opportunities,
+  event,
+  marketName,
+  selection,
+  modelProbability,
+  marketProbability,
+  books,
+  priceKey,
+  likelyScore,
+  samples
+}) {
+  const { bestOdd, bookmaker } = bestPrice(books, priceKey);
+ 
+  const finalProbability =
+    marketProbability != null
+      ? 0.65 * modelProbability + 0.35 * marketProbability
+      : modelProbability;
+ 
+  const fairOdd =
+    finalProbability > 0 ? 1 / finalProbability : null;
+ 
+  const ev =
+    bestOdd != null
+      ? finalProbability * bestOdd - 1
+      : null;
+ 
+  const confidence =
+    confidenceFor(samples, books.length);
+ 
+  opportunities.push({
+    game: `${event.home} x ${event.away}`,
+    market: marketName,
+    selection,
+    modelProb: modelProbability,
+    marketProb: marketProbability,
+    finalProb: finalProbability,
+    fairOdd,
+    bestOdd,
+    bookmaker,
+    ev,
+    confidence,
+    sources: books.length,
+    likelyScore,
+    status: statusFor(bestOdd, ev, confidence)
+  });
+}
+ 
+export default async function handler(req, res) {
   try {
+    const events = await loadSeason();
  
-    const events =
-      await loadSeason();
+    if (!events.length) {
+      return res.status(503).json({
+        ok: false,
+        error:
+          "A ESPN não devolveu jogos do Brasileirão. Tente atualizar novamente."
+      });
+    }
  
-    const now =
-      Date.now();
+    const now = Date.now();
  
-    const upcoming =
-      events
-        .filter(e =>
+    const upcoming = events
+      .filter(
+        e =>
           !e.completed &&
-          new Date(e.date).getTime()
-            >= now - 3600000
-        )
-        .sort(
-          (a, b) =>
-            new Date(a.date) -
-            new Date(b.date)
-        )
-        .slice(0, 20);
+          new Date(e.date).getTime() >= now - 3600000
+      )
+      .sort((a, b) => new Date(a.date) - new Date(b.date))
+      .slice(0, 20);
  
-    const papiFixtures =
-      await loadOddsPapiFixtures();
+    const papiFixtures = await loadOddsPapiFixtures();
  
-    const {
-      stats,
-      leagueAverage
-    } =
-      buildStats(events);
+    const { stats, leagueAverage } = buildStats(events);
  
     const opportunities = [];
     const games = [];
  
     for (const event of upcoming) {
- 
       const model =
-        calculateModel(
-          event,
-          stats,
-          leagueAverage
-        );
+        calculateModel(event, stats, leagueAverage);
  
-      if (!model)
-        continue;
+      if (!model) continue;
  
-      const espnOdds =
-        await loadOdds(event.id);
+      // ESPN é complementar. Se falhar, retorna [] e o radar segue.
+      const espnOdds = await loadOdds(event.id);
  
       const papiMatch =
-        findOddsPapiFixture(
-          event,
-          papiFixtures
-        );
+        findOddsPapiFixture(event, papiFixtures);
  
-      let papiOdds = [];
+      let papiMarkets = {
+        oneXtwo: [],
+        overUnder25: [],
+        btts: []
+      };
  
       if (papiMatch?.fixture?.fixtureId) {
         const papiData =
-          await loadOddsPapi(
-            papiMatch.fixture.fixtureId
-          );
+          await loadOddsPapi(papiMatch.fixture.fixtureId);
  
-        papiOdds =
-          parseOddsPapi1X2(
-            papiData,
-            papiMatch.reversed
-          );
+        if (papiData) {
+          papiMarkets =
+            parseOddsPapiMarkets(
+              papiData,
+              papiMatch.reversed
+            );
+        }
       }
  
-      const odds =
+      const oneXtwo =
         mergeOddsSources(
           espnOdds,
-          papiOdds
+          papiMarkets.oneXtwo
         );
  
-      let market =
-        null;
+      const market1x2 =
+        marketConsensus3(oneXtwo);
  
-      if (odds.length) {
+      const marketOU =
+        marketConsensus2(
+          papiMarkets.overUnder25,
+          "OVER25",
+          "UNDER25"
+        );
  
-        const probabilities =
-          odds.map(o =>
-            devig(
-              o["1"],
-              o["X"],
-              o["2"]
-            )
-          );
+      const marketBTTS =
+        marketConsensus2(
+          papiMarkets.btts,
+          "BTTS_YES",
+          "BTTS_NO"
+        );
  
-        market =
-          [0, 1, 2].map(i => {
+      addOpportunity({
+        opportunities,
+        event,
+        marketName: "Resultado",
+        selection: event.home,
+        modelProbability: model.p1,
+        marketProbability: market1x2?.[0] ?? null,
+        books: oneXtwo,
+        priceKey: "1",
+        likelyScore: model.score,
+        samples: model.samples
+      });
  
-            const values =
-              probabilities
-                .map(x => x[i])
-                .sort(
-                  (a, b) => a - b
-                );
+      addOpportunity({
+        opportunities,
+        event,
+        marketName: "Resultado",
+        selection: "Empate",
+        modelProbability: model.px,
+        marketProbability: market1x2?.[1] ?? null,
+        books: oneXtwo,
+        priceKey: "X",
+        likelyScore: model.score,
+        samples: model.samples
+      });
  
-            return values[
-              Math.floor(
-                values.length / 2
-              )
-            ];
-          });
+      addOpportunity({
+        opportunities,
+        event,
+        marketName: "Resultado",
+        selection: event.away,
+        modelProbability: model.p2,
+        marketProbability: market1x2?.[2] ?? null,
+        books: oneXtwo,
+        priceKey: "2",
+        likelyScore: model.score,
+        samples: model.samples
+      });
  
-        const total =
-          market.reduce(
-            (a, b) => a + b,
-            0
-          );
+      addOpportunity({
+        opportunities,
+        event,
+        marketName: "Total de gols 2.5",
+        selection: "Mais de 2.5 gols",
+        modelProbability: model.over25,
+        marketProbability: marketOU?.[0] ?? null,
+        books: papiMarkets.overUnder25,
+        priceKey: "OVER25",
+        likelyScore: model.score,
+        samples: model.samples
+      });
  
-        market =
-          market.map(
-            x => x / total
-          );
-      }
+      addOpportunity({
+        opportunities,
+        event,
+        marketName: "Total de gols 2.5",
+        selection: "Menos de 2.5 gols",
+        modelProbability: model.under25,
+        marketProbability: marketOU?.[1] ?? null,
+        books: papiMarkets.overUnder25,
+        priceKey: "UNDER25",
+        likelyScore: model.score,
+        samples: model.samples
+      });
  
-      const selections = [
+      addOpportunity({
+        opportunities,
+        event,
+        marketName: "Ambas marcam",
+        selection: "Sim",
+        modelProbability: model.btts,
+        marketProbability: marketBTTS?.[0] ?? null,
+        books: papiMarkets.btts,
+        priceKey: "BTTS_YES",
+        likelyScore: model.score,
+        samples: model.samples
+      });
  
-        [
-          "1",
-          event.home,
-          model.p1,
-          0
-        ],
- 
-        [
-          "X",
-          "Empate",
-          model.px,
-          1
-        ],
- 
-        [
-          "2",
-          event.away,
-          model.p2,
-          2
-        ]
-      ];
- 
-      for (
-        const [
-          key,
-          label,
-          modelProbability,
-          index
-        ] of selections
-      ) {
- 
-        let bestOdd = null;
-        let bookmaker = null;
- 
-        for (const book of odds) {
- 
-          if (
-            bestOdd == null ||
-            book[key] > bestOdd
-          ) {
- 
-            bestOdd =
-              book[key];
- 
-            bookmaker =
-              book.bookmaker;
-          }
-        }
- 
-        const marketProbability =
-          market?.[index] ?? null;
- 
-        const finalProbability =
-          marketProbability != null
-            ? 0.65 *
-              modelProbability +
-              0.35 *
-              marketProbability
-            : modelProbability;
- 
-        const fairOdd =
-          1 /
-          finalProbability;
- 
-        const ev =
-          bestOdd != null
-            ? finalProbability *
-              bestOdd - 1
-            : null;
- 
-        const confidence =
-          Math.max(
-            45,
-            Math.min(
-              92,
-              55 +
-              model.samples * 2 +
-              (odds.length
-                ? 10
-                : 0)
-            )
-          );
- 
-        opportunities.push({
- 
-          game:
-            `${event.home} x ${event.away}`,
- 
-          selection:
-            label,
- 
-          modelProb:
-            modelProbability,
- 
-          marketProb:
-            marketProbability,
- 
-          finalProb:
-            finalProbability,
- 
-          fairOdd,
- 
-          bestOdd,
- 
-          bookmaker,
- 
-          ev,
- 
-          confidence,
- 
-          sources:
-            odds.length,
- 
-          likelyScore:
-            model.score,
- 
-         status:
-  bestOdd == null
-    ? "SEM ODD"
-    : ev > 0.20
-      ? "AUDITAR"
-      : ev >= 0.05 && confidence >= 65
-        ? "OPORTUNIDADE"
-        : "OBSERVAR"
-        });
-      }
+      addOpportunity({
+        opportunities,
+        event,
+        marketName: "Ambas marcam",
+        selection: "Não",
+        modelProbability: model.bttsNo,
+        marketProbability: marketBTTS?.[1] ?? null,
+        books: papiMarkets.btts,
+        priceKey: "BTTS_NO",
+        likelyScore: model.score,
+        samples: model.samples
+      });
  
       games.push({
- 
-        game:
-          `${event.home} x ${event.away}`,
- 
+        game: `${event.home} x ${event.away}`,
         xg:
           `${model.lambdaHome.toFixed(2)} x ${model.lambdaAway.toFixed(2)}`,
- 
-        p1:
-          model.p1,
- 
-        px:
-          model.px,
- 
-        p2:
-          model.p2,
- 
-        over25:
-          model.over25,
- 
-        btts:
-          model.btts,
- 
-        score:
-          model.score,
- 
-        oddsSources:
-          odds.length
+        p1: model.p1,
+        px: model.px,
+        p2: model.p2,
+        over25: model.over25,
+        under25: model.under25,
+        btts: model.btts,
+        bttsNo: model.bttsNo,
+        score: model.score,
+        oddsSources: oneXtwo.length,
+        overUnderSources: papiMarkets.overUnder25.length,
+        bttsSources: papiMarkets.btts.length
       });
     }
  
     opportunities.sort(
       (a, b) =>
-        (b.ev ?? -999) -
-        (a.ev ?? -999) ||
-        b.confidence -
-        a.confidence
+        (b.ev ?? -999) - (a.ev ?? -999) ||
+        b.confidence - a.confidence
     );
  
-    res.status(200).json({
- 
+    return res.status(200).json({
       ok: true,
- 
-      source:
-        "ESPN + OddsPapi",
- 
-      league:
-        "Brasileirão Série A",
- 
-      leagueAvg:
-        leagueAverage,
- 
-      totalEvents:
-        events.length,
- 
-      upcoming:
-        upcoming.length,
- 
+      version: "EV-BR V2",
+      source: "ESPN + OddsPapi",
+      league: "Brasileirão Série A",
+      leagueAvg: leagueAverage,
+      totalEvents: events.length,
+      upcoming: upcoming.length,
+      markets: [
+        "1X2",
+        "Over/Under 2.5",
+        "Ambas Marcam"
+      ],
       opportunities,
- 
       games
     });
-  }
+  } catch (error) {
+    console.error("EV-BR analyze:", error);
  
-  catch (error) {
- 
-    res.status(500).json({
- 
+    return res.status(500).json({
       ok: false,
- 
       error:
         error?.message ||
         "Erro desconhecido"
