@@ -1,4 +1,3 @@
-
 const LEAGUE = "bra.1";
 const SCOREBOARD =
   `https://site.api.espn.com/apis/site/v2/sports/soccer/${LEAGUE}/scoreboard`;
@@ -73,36 +72,47 @@ function parseEvent(event) {
 async function loadSeason() {
   const year = new Date().getFullYear();
  
-  // A consulta anual antiga podia receber ESPN 400.
-  // Fazemos consultas mensais menores e, se uma falhar, seguimos com as demais.
+  // 1) Primeiro tenta o formato de temporada/ano, que evita o range
+  // que passou a retornar ESPN 400.
+  const yearly = await tryGetJSON(
+    `${SCOREBOARD}?dates=${year}&limit=500`
+  );
+ 
+  const yearlyEvents = (yearly?.events || [])
+    .map(parseEvent)
+    .filter(Boolean);
+ 
+  if (yearlyEvents.length >= 50) {
+    return yearlyEvents;
+  }
+ 
+  // 2) Se a ESPN não entregar a temporada inteira, consulta mês a mês
+  // usando YYYYMM (sem intervalo com hífen).
   const all = new Map();
  
   for (let month = 1; month <= 12; month++) {
     const mm = String(month).padStart(2, "0");
-    const lastDay = new Date(year, month, 0).getDate();
-    const dd = String(lastDay).padStart(2, "0");
+    const data = await tryGetJSON(
+      `${SCOREBOARD}?dates=${year}${mm}&limit=100`
+    );
  
-    const url =
-      `${SCOREBOARD}?dates=${year}${mm}01-${year}${mm}${dd}&limit=100`;
- 
-    const data = await tryGetJSON(url);
-    if (!data) continue;
- 
-    for (const raw of data.events || []) {
+    for (const raw of data?.events || []) {
       const event = parseEvent(raw);
       if (event?.id) all.set(event.id, event);
     }
   }
  
-  // Fallback: se a ESPN rejeitar as consultas com intervalo,
-  // tenta o scoreboard simples em vez de derrubar o radar.
-  if (!all.size) {
-    const fallback = await tryGetJSON(SCOREBOARD);
+  if (all.size >= 50) {
+    return [...all.values()];
+  }
  
-    for (const raw of fallback?.events || []) {
-      const event = parseEvent(raw);
-      if (event?.id) all.set(event.id, event);
-    }
+  // 3) Último fallback: inclui o que o scoreboard simples devolver,
+  // sem derrubar a função.
+  const fallback = await tryGetJSON(SCOREBOARD);
+ 
+  for (const raw of fallback?.events || []) {
+    const event = parseEvent(raw);
+    if (event?.id) all.set(event.id, event);
   }
  
   return [...all.values()];
