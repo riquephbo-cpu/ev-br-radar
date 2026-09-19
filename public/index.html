@@ -1,50 +1,199 @@
-
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EV-BR Radar</title>
-<style>
-:root{--bg:#07111e;--panel:#101c2e;--line:#263750;--text:#eff6ff;--muted:#91a4bd;--blue:#367cff;--green:#42dc9e;--red:#ff6e82;--yellow:#ffd166}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Arial}header{padding:24px 4%;background:#0b1727;border-bottom:1px solid var(--line)}h1{margin:0}header p{color:var(--muted)}
-main{width:min(1500px,95%);margin:20px auto}.panel{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:16px;margin-bottom:14px}.top{display:flex;justify-content:space-between;align-items:center}.controls{display:flex;gap:10px;align-items:end}
-label{font-size:12px;color:var(--muted)}input{display:block;margin-top:5px;width:95px;padding:9px;border-radius:8px;border:1px solid var(--line);background:#091423;color:#fff}button{background:var(--blue);border:0;color:#fff;border-radius:9px;padding:11px 18px;font-weight:800;cursor:pointer}
-.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.stat{background:#0e192a;border:1px solid var(--line);border-radius:12px;padding:15px}.stat small{color:var(--muted)}.stat b{display:block;font-size:24px;margin-top:6px}
-table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:10px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}th{color:#adc0d9;background:#0a1525}.scroll{overflow:auto;max-height:620px}.good{color:var(--green);font-weight:800}.bad{color:var(--red)}.badge{padding:5px 8px;border-radius:20px;font-weight:700}.op{background:#143b30;color:#5ce6b2}.watch{background:#3a3117;color:#ffe08b}.no{background:#34202a;color:#ff93a1}.note{background:#2c2516;color:#f6dfa0;border-left:4px solid var(--yellow);padding:11px;border-radius:8px}.loading{display:none;color:var(--yellow);font-weight:bold}
-</style></head><body>
-<header><h1>EV-BR RADAR</h1><p>Brasileirão: modelo próprio + mercado público + ranking de valor.</p></header><main>
-<div class="panel top"><div><h3>Radar de oportunidades</h3></div><div class="controls"><label>EV mínimo (%)<input id="minev" type="number" value="5"></label><label>Confiança mín.<input id="minconf" type="number" value="65"></label><button onclick="analyze()">ATUALIZAR</button></div></div>
-<div class="panel"><div class="note">Sem instalação. Se não houver odd pública disponível, o site mostra apenas a previsão e não classifica como oportunidade.</div><div id="loading" class="loading">Atualizando…</div></div>
-<div class="stats"><div class="stat"><small>Jogos</small><b id="s1">0</b></div><div class="stat"><small>Seleções</small><b id="s2">0</b></div><div class="stat"><small>Oportunidades</small><b id="s3">0</b></div><div class="stat"><small>Melhor EV</small><b id="s4">—</b></div><div class="stat"><small>Gols médios/lado</small><b id="s5">—</b></div></div>
-<div class="panel"><h3>🔥 Melhores oportunidades</h3><div class="scroll"><table><thead><tr><th>#</th><th>Jogo</th><th>Seleção</th><th>Modelo</th><th>Mercado</th><th>Prob. final</th><th>Odd justa</th><th>Melhor odd</th><th>Fonte</th><th>EV</th><th>Conf.</th><th>Fontes</th><th>Placar</th><th>Status</th></tr></thead><tbody id="rows"></tbody></table></div></div>
-<div class="panel"><h3>📊 Leitura dos jogos</h3><div class="scroll"><table><thead><tr><th>Jogo</th><th>xG modelo</th><th>Casa</th><th>Empate</th><th>Fora</th><th>Over 2.5</th><th>Ambas marcam</th><th>Placar</th></tr></thead><tbody id="games"></tbody></table></div></div>
-</main><script>
-const pc=x=>x==null?'—':(x*100).toFixed(1)+'%', od=x=>x==null?'—':Number(x).toFixed(2);
-async function analyze(){loading.style.display='block';try{const r=await fetch('/api/analyze');const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'Erro');const minEV=+minev.value/100,minC=+minconf.value;let c=0,best=null;rows.innerHTML='';
-d.opportunities.forEach((x,i)=>{
-  let st = x.status || "OBSERVAR";
-  let cl = "watch";
-
-  if (st === "OPORTUNIDADE") cl = "good";
-  else if (st === "AUDITAR") cl = "audit";
-  else if (st === "SEM ODD") cl = "no";
-  else if (st === "OBSERVAR") cl = "watch";
-
-  rows.innerHTML += `<tr><td>${i+1}</td><td>${x.game}</td><td><b>${x.selection}</b></td><td>${pc(x.modelProb)}</td><td>${pc(x.marketProb)}</td><td>${pc(x.finalProb)}</td><td>${od(x.fairOdd)}</td><td>${od(x.bestOdd)}</td><td>${x.bookmaker??'-'}</td><td>${pc(x.ev)}</td><td>${Math.round(x.confidence)}/100</td><td>${x.sources}</td><td>${x.likelyScore}</td><td><span class="badge ${cl}">${st}</span></td></tr>`;
-});
-
-games.innerHTML='';
-d.games.forEach(g=>{
-  games.innerHTML += `<tr><td>${g.game}</td><td>${g.xg}</td><td>${pc(g.p1)}</td><td>${pc(g.px)}</td><td>${pc(g.p2)}</td><td>${pc(g.over25)}</td><td>${pc(g.btts)}</td><td>${g.score}</td></tr>`;
-});
-
-s1.textContent=d.games.length;
-s2.textContent=d.opportunities.length;
-s3.textContent=d.opportunities.filter(x=>x.status==="OPORTUNIDADE").length;
-s4.textContent=d.opportunities.length ? pc(d.opportunities[0].ev) : '-';
-s5.textContent=d.leagueAvg ? Number(d.leagueAvg).toFixed(2) : '-';
-} catch(e) {
-  alert('Falha: ' + e.message);
-} finally {
-  loading.style.display = 'none';
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>EV-BR Radar</title>
+  <style>
+    :root{
+      --bg:#07111f;--panel:#0d1b2a;--panel2:#102338;--line:#20364d;
+      --text:#eef6ff;--muted:#8fa8bf;--green:#27d17f;--yellow:#ffc857;
+      --red:#ff6b6b;--blue:#55a7ff;--cyan:#4ee1d2;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#06101c,#091726 45%,#07111f);color:var(--text);
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+    .wrap{max-width:1380px;margin:auto;padding:28px 18px 60px}
+    header{display:flex;gap:18px;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap}
+    h1{margin:0;font-size:clamp(28px,4vw,46px);letter-spacing:-1px}
+    .sub{color:var(--muted);margin-top:6px}
+    button,select{background:#102338;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+    button{cursor:pointer;font-weight:700}.refresh{border-color:#2c7bd0}
+    .cards{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:18px 0}
+    .card{background:rgba(13,27,42,.9);border:1px solid var(--line);border-radius:14px;padding:16px}
+    .card small{display:block;color:var(--muted);margin-bottom:7px}.card b{font-size:26px}
+    .filters{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin:20px 0 14px}
+    .tab.active{background:#173e61;border-color:#3b8ed8}
+    .legend{color:var(--muted);font-size:13px;margin-left:auto}
+    .tablebox{overflow:auto;background:rgba(13,27,42,.9);border:1px solid var(--line);border-radius:14px}
+    table{width:100%;border-collapse:collapse;min-width:1160px}
+    th,td{padding:12px 10px;border-bottom:1px solid #172b3e;text-align:left;font-size:14px;white-space:nowrap}
+    th{color:#9cb6cd;font-size:12px;text-transform:uppercase;letter-spacing:.05em;position:sticky;top:0;background:#0d1b2a}
+    tr:hover td{background:#102338}
+    .evpos{color:var(--green);font-weight:800}.evneg{color:#b4c1cd}.odd{color:var(--cyan);font-weight:800}
+    .status{font-size:11px;font-weight:900;padding:5px 8px;border-radius:999px;display:inline-block}
+    .OPORTUNIDADE{background:rgba(39,209,127,.13);color:var(--green);border:1px solid rgba(39,209,127,.35)}
+    .AUDITAR{background:rgba(255,107,107,.13);color:var(--red);border:1px solid rgba(255,107,107,.35)}
+    .OBSERVAR{background:rgba(255,200,87,.12);color:var(--yellow);border:1px solid rgba(255,200,87,.32)}
+    .SEM-ODD{background:#142536;color:#7891a8;border:1px solid #294158}
+    .section{margin-top:28px}.section h2{margin-bottom:6px}.hint{color:var(--muted);font-size:13px;margin-bottom:12px}
+    .games{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    .game{background:rgba(13,27,42,.9);border:1px solid var(--line);border-radius:14px;padding:15px}
+    .gamehead{display:flex;justify-content:space-between;gap:10px;font-weight:800;margin-bottom:12px}
+    .score{color:var(--blue)}
+    .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+    .metric{background:#0a1725;border-radius:9px;padding:9px}.metric small{display:block;color:var(--muted);font-size:11px}.metric b{font-size:14px}
+    .loading,.error{text-align:center;padding:28px;color:var(--muted)}
+    .error{color:var(--red)}
+    footer{color:#70879b;font-size:12px;margin-top:18px;line-height:1.5}
+    @media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}.games{grid-template-columns:1fr}.legend{width:100%;margin-left:0}}
+    @media(max-width:520px){.cards{grid-template-columns:1fr 1fr}.card b{font-size:21px}.wrap{padding:18px 10px 40px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1>EV-BR RADAR</h1><div class="sub">Brasileirão Série A • Modelo + mercado + preço</div></div>
+    <button class="refresh" onclick="loadData()">↻ Atualizar radar</button>
+  </header>
+ 
+  <div class="cards">
+    <div class="card"><small>Jogos futuros</small><b id="gamesCount">—</b></div>
+    <div class="card"><small>Seleções analisadas</small><b id="selCount">—</b></div>
+    <div class="card"><small>Oportunidades</small><b id="oppCount">—</b></div>
+    <div class="card"><small>Melhor EV</small><b id="bestEv">—</b></div>
+    <div class="card"><small>Versão</small><b id="version" style="font-size:18px">—</b></div>
+  </div>
+ 
+  <div class="filters">
+    <button class="tab active" data-market="ALL">Todos</button>
+    <button class="tab" data-market="Resultado">1X2</button>
+    <button class="tab" data-market="Total de gols 2.5">Over/Under 2.5</button>
+    <button class="tab" data-market="Ambas marcam">Ambas Marcam</button>
+    <select id="statusFilter">
+      <option value="ALL">Todos os status</option>
+      <option value="OPORTUNIDADE">Oportunidade</option>
+      <option value="AUDITAR">Auditar</option>
+      <option value="OBSERVAR">Observar</option>
+      <option value="SEM ODD">Sem odd</option>
+    </select>
+    <div class="legend">Ordenado por EV quando há preço disponível</div>
+  </div>
+ 
+  <div class="tablebox">
+    <table>
+      <thead><tr>
+        <th>Jogo</th><th>Mercado</th><th>Seleção</th><th>Modelo</th><th>Mercado</th>
+        <th>Prob. final</th><th>Odd justa</th><th>Melhor odd</th><th>Casa</th><th>EV</th>
+        <th>Conf.</th><th>Fontes</th><th>Placar</th><th>Status</th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="14" class="loading">Carregando radar…</td></tr></tbody>
+    </table>
+  </div>
+ 
+  <div class="section">
+    <h2>Leitura dos jogos</h2>
+    <div class="hint">Probabilidades do modelo. Não representam garantia de resultado.</div>
+    <div id="gameCards" class="games"></div>
+  </div>
+ 
+  <footer>
+    EV-BR Radar é uma ferramenta de análise. “Oportunidade” indica apenas que os critérios internos do modelo foram atendidos;
+    não é garantia de lucro. “Auditar” sinaliza EV extremo que merece conferência antes de qualquer decisão.
+  </footer>
+</div>
+ 
+<script>
+let DATA=null, currentMarket="ALL";
+ 
+const pick=(o,...keys)=>{for(const k of keys) if(o && o[k]!==undefined) return o[k]; return null};
+const pct=v=>v==null?"—":(Number(v)*100).toFixed(1)+"%";
+const num=(v,d=2)=>v==null?"—":Number(v).toFixed(d);
+const esc=s=>String(s??"—").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+ 
+function normalizeMarket(m){
+  const x=String(m||"").toLowerCase();
+  if(x.includes("ambas")) return "Ambas marcam";
+  if(x.includes("total")||x.includes("2.5")||x.includes("2,5")) return "Total de gols 2.5";
+  return "Resultado";
 }
+function clsStatus(s){return String(s||"").replace(/\s+/g,"-")}
+function render(){
+  if(!DATA)return;
+  const ops=pick(DATA,"opportunities","oportunidades")||[];
+  const status=document.getElementById("statusFilter").value;
+  let rows=ops.map(o=>({
+    raw:o,
+    game:pick(o,"game","jogo"),
+    market:normalizeMarket(pick(o,"market","mercado")),
+    selection:pick(o,"selection","seleção"),
+    modelProb:pick(o,"modelProb"),
+    marketProb:pick(o,"marketProb"),
+    finalProb:pick(o,"finalProb"),
+    fairOdd:pick(o,"fairOdd"),
+    bestOdd:pick(o,"bestOdd","melhorOdd"),
+    bookmaker:pick(o,"bookmaker","casa de apostas","casa"),
+    ev:pick(o,"ev"),
+    confidence:pick(o,"confidence","confiança"),
+    sources:pick(o,"sources","fontes"),
+    score:pick(o,"likelyScore","provávelScore","provávelPontuação","score"),
+    status:pick(o,"status")
+  }));
+  rows=rows.filter(r=>(currentMarket==="ALL"||r.market===currentMarket)&&(status==="ALL"||r.status===status));
+  rows.sort((a,b)=>(b.ev??-999)-(a.ev??-999));
+  document.getElementById("rows").innerHTML=rows.length?rows.map(r=>`
+    <tr>
+      <td><b>${esc(r.game)}</b></td><td>${esc(r.market)}</td><td>${esc(r.selection)}</td>
+      <td>${pct(r.modelProb)}</td><td>${pct(r.marketProb)}</td><td>${pct(r.finalProb)}</td>
+      <td>${num(r.fairOdd)}</td><td class="odd">${num(r.bestOdd)}</td><td>${esc(r.bookmaker)}</td>
+      <td class="${r.ev!=null&&r.ev>0?'evpos':'evneg'}">${pct(r.ev)}</td>
+      <td>${r.confidence==null?"—":esc(r.confidence)+"%"}</td><td>${esc(r.sources)}</td><td>${esc(r.score)}</td>
+      <td><span class="status ${clsStatus(r.status)}">${esc(r.status)}</span></td>
+    </tr>`).join(""):`<tr><td colspan="14" class="loading">Nenhum item neste filtro.</td></tr>`;
 }
-
-analyze();
-</script></body></html>
+function renderGames(){
+  const games=pick(DATA,"games")||[];
+  document.getElementById("gameCards").innerHTML=games.map(g=>`
+    <div class="game">
+      <div class="gamehead"><span>${esc(pick(g,"game","jogo"))}</span><span class="score">${esc(pick(g,"score","pontuação"))}</span></div>
+      <div class="metrics">
+        <div class="metric"><small>xG</small><b>${esc(pick(g,"xg"))}</b></div>
+        <div class="metric"><small>Casa / Empate / Fora</small><b>${pct(pick(g,"p1"))} / ${pct(pick(g,"px"))} / ${pct(pick(g,"p2"))}</b></div>
+        <div class="metric"><small>Over 2.5</small><b>${pct(pick(g,"over25","acima de 25"))}</b></div>
+        <div class="metric"><small>Under 2.5</small><b>${pct(pick(g,"under25","abaixo de 25"))}</b></div>
+        <div class="metric"><small>BTTS Sim</small><b>${pct(pick(g,"btts"))}</b></div>
+        <div class="metric"><small>BTTS Não</small><b>${pct(pick(g,"bttsNo","bttsNão"))}</b></div>
+        <div class="metric"><small>Fontes 1X2</small><b>${esc(pick(g,"oddsSources"))}</b></div>
+        <div class="metric"><small>Fontes OU / BTTS</small><b>${esc(pick(g,"overUnderSources"))} / ${esc(pick(g,"bttsSources"))}</b></div>
+      </div>
+    </div>`).join("");
+}
+async function loadData(){
+  document.getElementById("rows").innerHTML='<tr><td colspan="14" class="loading">Atualizando radar…</td></tr>';
+  try{
+    const res=await fetch("/api/analyze",{cache:"no-store"});
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    DATA=await res.json();
+    if(!DATA.ok) throw new Error(DATA.error||"Falha na análise");
+    const ops=pick(DATA,"opportunities","oportunidades")||[];
+    const games=pick(DATA,"games")||[];
+    const evs=ops.map(o=>pick(o,"ev")).filter(v=>v!=null&&Number.isFinite(Number(v))).map(Number);
+    document.getElementById("gamesCount").textContent=pick(DATA,"upcoming")??games.length;
+    document.getElementById("selCount").textContent=ops.length;
+    document.getElementById("oppCount").textContent=ops.filter(o=>pick(o,"status")==="OPORTUNIDADE").length;
+    document.getElementById("bestEv").textContent=evs.length?pct(Math.max(...evs)):"—";
+    document.getElementById("version").textContent=pick(DATA,"version")||"—";
+    render(); renderGames();
+  }catch(e){
+    document.getElementById("rows").innerHTML=`<tr><td colspan="14" class="error">Erro ao carregar: ${esc(e.message)}</td></tr>`;
+  }
+}
+document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+  b.classList.add("active"); currentMarket=b.dataset.market; render();
+}));
+document.getElementById("statusFilter").addEventListener("change",render);
+loadData();
+</script>
+</body>
+</html>
