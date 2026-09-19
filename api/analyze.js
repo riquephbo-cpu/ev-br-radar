@@ -1,6 +1,4 @@
-EV-BR RADAR — analyze.js V2
-COPIE SOMENTE O CÓDIGO ABAIXO, começando em const LEAGUE e indo até a última chave }.
-No GitHub: Ctrl+A no código antigo → Delete → cole este código completo → Confirmar alterações.
+
 const LEAGUE = "bra.1";
 const SCOREBOARD =
   `https://site.api.espn.com/apis/site/v2/sports/soccer/${LEAGUE}/scoreboard`;
